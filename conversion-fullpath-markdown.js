@@ -1,69 +1,106 @@
-var FILE_SYSTEM = require("fs");
-var PATH = require("path");
+var fs = require("fs");
+var path = require("path");
+var markdownpdf = require("markdown-pdf");
+var mkdirp = require('mkdirp');
 
 // 処理対象ディレクトリパス
 var TARGET_DIRECTORY_PATH = '.';
 // Link取得の正規表現
 var LINK_REG_EXP = /\(images.*\)/g;
+// マークダウン取得の正規表現
+var MARKDWON_REG_EXP = /.*\.md$/;
+// マークダウンの文字コード
+var MARKDOWN_CHAR_CODE = 'utf8';
 
 // 対象のディレクトリに存在するファイル一覧を取得する
 var getFileFullPaths = function (currentDirectoryPath, successCallback, errorCallback) {
 
-    FILE_SYSTEM.readdir(currentDirectoryPath, function (err, files) {
+  fs.readdir(currentDirectoryPath, function (err, files) {
 
-        if (err) {
-            errorCallback(err);
-            return;
+    if (err) {
+      return errorCallback(err);
+    }
+
+    files.forEach(function (itemName) {
+
+      // フルパスを取得する
+      var fullPath = getFullPath(itemName);
+
+      if(fs.statSync(fullPath).isDirectory()) {
+
+        // フォルダだった場合１つ下の階層を探索する
+        getFileFullPaths(fullPath, successCallback);
+
+      } else if(fs.statSync(fullPath).isFile()) {
+
+        // ファイルだった場合、マークダウンファイルかチェックする
+        if( MARKDWON_REG_EXP.test(itemName) ){
+          successCallback(fullPath, errorCallback);
         }
 
-        files.forEach(function (itemName) {
-            var fullPath = PATH.join(currentDirectoryPath, itemName);
-            if(FILE_SYSTEM.statSync(fullPath).isDirectory()) {
-                // フォルダだった場合１つ下の階層を探索する
-                getFileFullPaths(fullPath, successCallback);
-            } else {
-                // ファイルの存在する　かつ　マークダウンファイル
-                if(FILE_SYSTEM.statSync(fullPath).isFile() && /.*\.md$/.test(itemName) ){
-                    successCallback(fullPath, errorCallback);
-                }
-            }
-        });
+      }
     });
+  });
+};
+
+var getFullPath = function (itemName) {
+  return path.join(currentDirectoryPath, itemName);
 };
 
 // マークダウンからLink文を抽出する処理
 var getMarkdownLinks = function (fullPath, errorCallback){
 
-    FILE_SYSTEM.readFile( fullPath, 'utf8', function (err, contents) {
+  fs.readFile( fullPath, MARKDOWN_CHAR_CODE, function (err, contents) {
 
-        if (err) {
-            errorCallback(err);
-            return;
-        }
+    if (err) {
+      errorCallback(err);
+      return;
+    }
 
-        // タイトル付Link文の取得
-        var links = contents.match(LINK_REG_EXP);
-        if(links !== null){
-            links.forEach(function (linkStrings) {
-            	var tmp = linkStrings.substr(1);
-            	tmp = tmp.substr( 0 , (tmp.length-1) );
-            	contents = contents.replace(tmp, PATH.resolve('guide/' + tmp));
-                console.log(tmp);
-                console.log(PATH.resolve('guide/' + tmp));
-            });
+    // タイトル付Link文の取得
+    var links = contents.match(LINK_REG_EXP);
 
-            FILE_SYSTEM.writeFile(fullPath, contents , function (err) {
-			    console.log(err);
-			});
-        }
-    });
+    if(links !== null){
+
+      links.forEach(function (linkStrings) {
+        var tmp = linkStrings.substr(1);
+        tmp = tmp.substr( 0 , (tmp.length-1) );
+        contents = contents.replace(tmp, path.resolve(tmp));
+
+        console.log(tmp);
+        console.log(path.resolve(tmp));
+      });
+
+      fs.writeFile(fullPath, contents , errorCallback(err));
+
+    }
+  });
 };
 
-// マークダウンファイルのフルパスを取得する
-getFileFullPaths(
-    TARGET_DIRECTORY_PATH, 
-    getMarkdownLinks,
-    function (err) {
-        console.log("リンク切れチェック中にエラーが発生しました。:" + err);
+// マークダウンファイルをPDFに変換する
+var convertMarkdownPdf = function (targetPath, outputPath, successCallback) {
+  return markdownpdf().from(targetPath).to(outputPath, successCallback);
+};
+
+var outputErrorConsoleLog = function (err) {
+  console.log("処理中にエラーが発生しました。:" + err);
+}
+
+var mkdir = function (path) {
+  mkdirp( path, function (err) {
+    if (err) {
+      outputErrorConsoleLog(err);
+    } else {
+      console.log('success')
     }
-);
+  });
+};
+
+var action = function () {
+  // マークダウンファイルのフルパスを取得する
+  return getFileFullPaths(
+    TARGET_DIRECTORY_PATH,
+    getMarkdownLinks,
+    outputErrorConsoleLog
+  );
+};
