@@ -1,106 +1,159 @@
-var fs = require("fs");
-var path = require("path");
-var markdownpdf = require("markdown-pdf");
+'use strict';
+
+var fs = require('fs');
+var path = require('path');
+var markdownpdf = require('markdown-pdf');
 var mkdirp = require('mkdirp');
+var ncp = require('ncp').ncp;
 
 // 処理対象ディレクトリパス
 var TARGET_DIRECTORY_PATH = '.';
+
 // Link取得の正規表現
 var LINK_REG_EXP = /\(images.*\)/g;
+
 // マークダウン取得の正規表現
 var MARKDWON_REG_EXP = /.*\.md$/;
+
 // マークダウンの文字コード
 var MARKDOWN_CHAR_CODE = 'utf8';
 
-// 対象のディレクトリに存在するファイル一覧を取得する
-var getFileFullPaths = function (currentDirectoryPath, successCallback, errorCallback) {
+var NCP_LIMIT = 16;
 
-  fs.readdir(currentDirectoryPath, function (err, files) {
+// マークダウンの拡張子
+var MARKDOWN_EXP = '.md';
+
+// マークダウンの拡張子
+var PDF_EXP = '.pdf';
+
+// 作業用ディレクトリの作成
+var WORKING_DIR_NAME = 'tmp';
+
+// PDF格納用用ディレクトリの作成
+var PDF_DIR_NAME = 'pdf';
+
+var getFullPath = function(pathStr) {
+  return path.resolve(WORKING_DIR_NAME, pathStr);
+};
+
+var dirList = [];
+var fileList = [];
+
+/**
+ * ディレクトリを作成する
+ */
+var mkdir = function(path) {
+  mkdirp(path, function(err) {
+    if (err) {
+      throw err;
+    }
+  });
+};
+
+var getPaths = function(currentDirectoryPath) {
+
+  fs.readdir(currentDirectoryPath, function(err, paths) {
 
     if (err) {
-      return errorCallback(err);
+      throw err;
     }
 
-    files.forEach(function (itemName) {
+    paths.forEach(function(pathStr) {
 
       // フルパスを取得する
-      var fullPath = getFullPath(itemName);
+      // var fullPath = getFullPath(pathStr);
+      var fullPath = currentDirectoryPath + '/' + pathStr;
 
-      if(fs.statSync(fullPath).isDirectory()) {
+      if (fs.statSync(fullPath).isDirectory()) {
+        dirList.push(fullPath);
 
         // フォルダだった場合１つ下の階層を探索する
-        getFileFullPaths(fullPath, successCallback);
+        getPaths(fullPath);
 
-      } else if(fs.statSync(fullPath).isFile()) {
+      } else if (fs.statSync(fullPath).isFile()) {
 
         // ファイルだった場合、マークダウンファイルかチェックする
-        if( MARKDWON_REG_EXP.test(itemName) ){
-          successCallback(fullPath, errorCallback);
+        if (MARKDWON_REG_EXP.test(fullPath)) {
+          convertRelativePathToFullPath(fullPath, currentDirectoryPath);
+          fileList.push(fullPath);
         }
-
       }
     });
   });
 };
 
-var getFullPath = function (itemName) {
-  return path.join(currentDirectoryPath, itemName);
-};
-
 // マークダウンからLink文を抽出する処理
-var getMarkdownLinks = function (fullPath, errorCallback){
+var convertRelativePathToFullPath = function(fullPath, currentDirectoryPath) {
 
-  fs.readFile( fullPath, MARKDOWN_CHAR_CODE, function (err, contents) {
+  console.log(fullPath);
+
+  fs.readFile(fullPath, MARKDOWN_CHAR_CODE, function(err, contents) {
 
     if (err) {
-      errorCallback(err);
-      return;
+      throw err;
     }
 
-    // タイトル付Link文の取得
-    var links = contents.match(LINK_REG_EXP);
+    // イメージのURLを取得
+    var imgSources = contents.match(LINK_REG_EXP);
 
-    if(links !== null){
+    if (imgSources !== null) {
 
-      links.forEach(function (linkStrings) {
-        var tmp = linkStrings.substr(1);
-        tmp = tmp.substr( 0 , (tmp.length-1) );
-        contents = contents.replace(tmp, path.resolve(tmp));
+      imgSources.forEach(function(imgSource) {
+        var imgSource = imgSource.substr(1);
+        imgSource = imgSource.substr(0, (imgSource.length　 - 　1));
+        var tmp = imgSource;
+        if (!path.isAbsolute(tmp)) {
+          for (var i = 0; i < dirList.length; i++) {
+            tmp = path.resolve(dirList[i], imgSource);
+            if (path.isAbsolute(tmp)) {
+              break;
+            }
+          }
+        }
 
-        console.log(tmp);
-        console.log(path.resolve(tmp));
+        contents = contents.replace(imgSource, tmp);
       });
 
-      fs.writeFile(fullPath, contents , errorCallback(err));
+      fs.writeFile(fullPath, contents, function(err) {
+        if (err) {
+          throw err;
+        }
 
+        // var pdfFullPath = currentDirectoryPath + '/' + path.basename(fullPath, MARKDOWN_EXP) + PDF_EXP;
+        // convertMarkdownPdf(fullPath, pdfFullPath, function() {
+        //   console.log('pdf');
+        // });
+
+      });
     }
   });
 };
 
 // マークダウンファイルをPDFに変換する
-var convertMarkdownPdf = function (targetPath, outputPath, successCallback) {
+var convertMarkdownPdf = function(targetPath, outputPath, successCallback) {
   return markdownpdf().from(targetPath).to(outputPath, successCallback);
 };
 
-var outputErrorConsoleLog = function (err) {
-  console.log("処理中にエラーが発生しました。:" + err);
-}
+var action = function() {
+  try {
+    // PDF格納用ディレクトリの作成
+    mkdir(PDF_DIR_NAME);
 
-var mkdir = function (path) {
-  mkdirp( path, function (err) {
-    if (err) {
-      outputErrorConsoleLog(err);
-    } else {
-      console.log('success')
-    }
-  });
+    // 作業用ディレクトリの作成
+    mkdir(WORKING_DIR_NAME);
+
+    // 作業用ディレクトリに資産をコピー
+    ncp.limit = NCP_LIMIT;
+    ncp(process.argv[2], WORKING_DIR_NAME, function(err) {
+      if (err) {
+        throw err;
+      }else {
+        getPaths(WORKING_DIR_NAME);
+      }
+    });
+  } catch (e) {
+    console.log(e);
+  }
 };
 
-var action = function () {
-  // マークダウンファイルのフルパスを取得する
-  return getFileFullPaths(
-    TARGET_DIRECTORY_PATH,
-    getMarkdownLinks,
-    outputErrorConsoleLog
-  );
-};
+action();
