@@ -5,6 +5,7 @@ var path = require('path');
 var markdownpdf = require('markdown-pdf');
 var mkdirp = require('mkdirp');
 var ncp = require('ncp').ncp;
+var del = require('del');
 
 // 処理対象ディレクトリパス
 var TARGET_DIRECTORY_PATH = '.';
@@ -85,8 +86,6 @@ var getPaths = function(currentDirectoryPath) {
 // マークダウンからLink文を抽出する処理
 var convertRelativePathToFullPath = function(fullPath, currentDirectoryPath) {
 
-  console.log(fullPath);
-
   fs.readFile(fullPath, MARKDOWN_CHAR_CODE, function(err, contents) {
 
     if (err) {
@@ -122,7 +121,7 @@ var convertRelativePathToFullPath = function(fullPath, currentDirectoryPath) {
 
       var pdfFullPath = PDF_DIR_NAME + '/' + path.basename(fullPath, MARKDOWN_EXP) + PDF_EXP;
       convertMarkdownPdf(fullPath, pdfFullPath, function() {
-        console.log('pdf');
+        console.log('PDF化完了：' + fullPath);
       });
 
     });
@@ -136,21 +135,24 @@ var convertMarkdownPdf = function(targetPath, outputPath, successCallback) {
 
 var action = function() {
   try {
-    // PDF格納用ディレクトリの作成
-    mkdir(PDF_DIR_NAME);
+    del([PDF_DIR_NAME, WORKING_DIR_NAME], function() {
+      // PDF格納用ディレクトリの作成
+      mkdir(PDF_DIR_NAME);
 
-    // 作業用ディレクトリの作成
-    mkdir(WORKING_DIR_NAME);
+      // 作業用ディレクトリの作成
+      mkdir(WORKING_DIR_NAME);
 
-    // 作業用ディレクトリに資産をコピー
-    ncp.limit = NCP_LIMIT;
-    ncp(process.argv[2], WORKING_DIR_NAME, function(err) {
-      if (err) {
-        throw err;
-      }else {
-        getPaths(WORKING_DIR_NAME);
-      }
+      // 作業用ディレクトリに資産をコピー
+      ncp.limit = NCP_LIMIT;
+      ncp(process.argv[2], WORKING_DIR_NAME, function(err) {
+        if (err) {
+          throw err;
+        }else {
+          getPaths(WORKING_DIR_NAME);
+        }
+      });
     });
+
   } catch (e) {
     console.log(e);
   }
